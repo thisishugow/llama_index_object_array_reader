@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "llamaindex-object-array-reader"
+version = "0.1.0"
+description = "Use Llamaindex to index and retrieve object arrays"
+authors = ["thisishugow <59921505+thisishugow@users.noreply.github.com>"]
+readme = "README.md"
+packages = [{include = "llamaindex_object_array_reader"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+chromadb = "^0.4.22"
+llama-index = "^0.9.27"
+pandas = "^2.1.4"
+transformers = "^4.36.2"
+pypdf = "^3.17.4"
+torch = "^2.1.2"
+accelerate = "^0.25.0"
+langchain = "^0.1.0"
+safetensors = "^0.4.1"
+sentence-transformers = "^2.2.2"
+instructorembedding = "^1.0.1"
+
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.28.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
