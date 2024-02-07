@@ -2,3 +2,5 @@ my_cred.py
 cache_folder
 offload_folder
 __pycache__
+.env
+chromadb
