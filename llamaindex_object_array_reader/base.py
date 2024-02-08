@@ -53,7 +53,7 @@ class ObjectArrayReader(BaseReader):
         self._pandas_config = pandas_config
 
     def load_data(
-        self, file: Path | list[dict], extra_info: Optional[Dict] = None
+        self, file: Path | list[dict], extra_info: Optional[Dict] = {}
     ) -> List[Document]:
         """Parse file."""
         import pandas as pd
@@ -68,14 +68,22 @@ class ObjectArrayReader(BaseReader):
         text_list = df.apply(
             lambda row: (self._col_joiner).join(row.astype(str).tolist()), axis=1
         ).tolist()
-
+        df_metadata:dict = {
+            "columns": str(df.columns.tolist()),
+            "schema": str(df.info(verbose=True)),
+            "shape": str(df.shape),
+        }
+        for k, v in df_metadata.items():
+            extra_info[k] = v
         if self._concat_rows:
             return [
                 Document(
-                    text=self._row_joiner.join(text_list), extra_info=extra_info or {}
+                    text=self._row_joiner.join(text_list), extra_info=extra_info or {},
+                    metadata=df_metadata,
                 )
             ]
         else:
             return [
-                Document(text=text, extra_info=extra_info or {}) for text in text_list
+                Document(text=text, extra_info=extra_info or {}, metadata=df_metadata,) 
+                for text in text_list
             ]
