@@ -1,6 +1,15 @@
 # llamaindex_object_array_reader
 Use Llamaindex to index and retrieve object arrays 
 
+- LLM: Ollama: starling-lm:7b-alpha-q3_K_M
+- Embedding: "sentence-transformers/all-mpnet-base-v2"
+
+Testing Environment: 
+- Mac M2 RAM:16G 
+- Python3.10
+
+
+## Example Usage: 
 ```python
 import os 
 import importlib
