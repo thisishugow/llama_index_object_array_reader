@@ -14,35 +14,31 @@ Testing Environment:
 import os 
 import importlib
 import textwrap
-from llama_index import VectorStoreIndex, SimpleDirectoryReader, StorageContext, get_response_synthesizer, PromptHelper
-from llama_index.text_splitter import SentenceSplitter
-from llama_index.retrievers import VectorIndexRetriever
-from llama_index.query_engine import RetrieverQueryEngine
-from llama_index.postprocessor import SimilarityPostprocessor
-from llama_index.node_parser import SimpleNodeParser
-from llama_index.vector_stores import ChromaVectorStore
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, ServiceContext, set_global_tokenizer, PromptHelper, StorageContext, load_index_from_storage, Settings
+from llama_index.core.text_splitter import SentenceSplitter
+from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.core.node_parser import SimpleNodeParser
 from llamaindex_object_array_reader.dataset import simple_ols # import a simple dataset 
-from llama_index.llms import HuggingFaceLLM
-from llama_index.prompts import PromptTemplate
-from llama_index.indices.query.schema import QueryBundle
+from llama_index.legacy.llms import HuggingFaceLLM
 import torch
 from transformers import AutoTokenizer, AutoModel
 from transformers import BitsAndBytesConfig
-from llama_index.llms import Ollama
-from llama_index import ServiceContext, set_global_tokenizer
+from llama_index.llms.ollama import Ollama
 # from langchain.embeddings import HuggingFaceEmbedding, HuggingFaceInstructEmbeddings
-from llama_index.embeddings import HuggingFaceEmbedding
 from transformers import AutoTokenizer, AutoModel
 from argparse import Namespace
 from chromadb import Collection, PersistentClient
 from dotenv import load_dotenv
 from llamaindex_object_array_reader import ObjectArrayReader
+from llama_index.core.callbacks import CallbackManager, LlamaDebugHandler
+import nest_asyncio
+
+# 允许嵌套事件循环
+nest_asyncio.apply()
+
 
 ```
-
-    /Users/yuwang/Developments/python/llamaindex_object_array_reader/.venv/lib/python3.10/site-packages/tqdm/auto.py:21: TqdmWarning: IProgress not found. Please update jupyter and ipywidgets. See https://ipywidgets.readthedocs.io/en/stable/user_install.html
-      from .autonotebook import tqdm as notebook_tqdm
-
 
 
 ```python
@@ -53,6 +49,13 @@ from llamaindex_object_array_reader._logging import logger
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
 log = logger
+log.setLevel(logging.INFO)
+```
+
+
+```python
+llama_debug = LlamaDebugHandler(print_trace_on_end=True)
+callback_manager = CallbackManager([llama_debug])
 ```
 
 
@@ -110,7 +113,8 @@ set_global_tokenizer(tokenizer)
 USE_LOCAL:bool = True
 if USE_LOCAL:
     # llm = Ollama(model="llama2-chinese")
-    llm = Ollama(model="starling-lm:7b-alpha-q3_K_M")
+    # llm = Ollama(model="starling-lm:7b-alpha-q3_K_M")
+    llm = Ollama(model="mistral")
     
 else: 
     llm = HuggingFaceLLM(
@@ -174,17 +178,17 @@ for _, n in enumerate(nodes):
 ```
 
     Total nodes: 3
-    Node ID: ec94fbc2-06cf-41aa-b156-9c8753d101d1
+    Node ID: 9c5010f1-c0e7-4b83-980f-fcba0a6443c0
     Text: You can do data integration, management, analysis and composing
     reports and dashboards with Pharmquer, and then automatize all your
     works.
     ---
-    Node ID: 91c1aaef-6216-4242-b187-906db3939929
+    Node ID: ca166a61-c126-4a4e-ba49-b46c1c9aa851
     Text: Colosscious' flagship product, Pharmquer, is an enterprise level
     software of manufacturing and business intelligence, which is
     architected especially for the industry.
     ---
-    Node ID: 1dc13ad7-d352-4219-a63c-f174adb3c933
+    Node ID: f4dd374a-2eaa-45ae-86a2-c039010768eb
     Text: Welcome to Colosscious.  We are the expert who spotlight-focus
     on providing the digital technology to bio and pharmaceutical
     companies, engaging in boosting the performances of new drug
@@ -204,12 +208,6 @@ storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
 ```
 
-    2024-02-08 15:18:35,622 - chromadb.telemetry.product.posthog - [32;20mINFO[0m - (posthog.py:20) - Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information. 
-
-
-    Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
-
-
 
 ```python
 for n in nodes:
@@ -221,53 +219,46 @@ for n in nodes:
     False
 
 
+## Settings ( v0.10.0+)
+
+
+```python
+Settings.text_splitter = text_splitter
+Settings.callback_manager = callback_manager
+Settings.prompt_helper = prompt_helper
+Settings.embed_model = embedding_model
+Settings.llm = llm
+```
+
 ## Create and store new embeddings to ChromaDB. 
 
 
 ```python
 storage_context.docstore.add_documents(nodes)
 
-service_context = ServiceContext.from_defaults(llm=llm, embed_model=embedding_model, text_splitter=text_splitter,
-    prompt_helper=prompt_helper,)
+# Deprecated from v0.9
+#service_context = ServiceContext.from_defaults(llm=llm, embed_model=embedding_model, text_splitter=text_splitter,
+#    prompt_helper=prompt_helper, callback_manager=callback_manager)
 # index = VectorStoreIndex.from_documents(
 #     documents, service_context=service_context, storage_context=storage_context, show_progress=True,
 # )
 index = VectorStoreIndex(
-    nodes, service_context=service_context, storage_context=storage_context, show_progress=True,
+    nodes, 
+    storage_context=storage_context, 
+    show_progress=True, 
 )
 ```
 
-    huggingface/tokenizers: The current process just got forked, after parallelism has already been used. Disabling parallelism to avoid deadlocks...
-    To disable this warning, you can either:
-    	- Avoid using `tokenizers` before the fork if possible
-    	- Explicitly set the environment variable TOKENIZERS_PARALLELISM=(true | false)
-    Generating embeddings: 100%|██████████| 3/3 [00:00<00:00,  5.29it/s]
-    2024-02-07 22:47:49,898 - chromadb.segment.impl.vector.local_persistent_hnsw - [33;20mWARNING[0m - (local_persistent_hnsw.py:271) - Add of existing embedding ID: dc0f865e-90c8-42b0-9239-19625ebcef35 
+    Generating embeddings: 100%|██████████| 3/3 [00:01<00:00,  2.60it/s]
+
+    **********
+    Trace: index_construction
+        |_embedding ->  1.151678 seconds
+    **********
 
 
-    Add of existing embedding ID: dc0f865e-90c8-42b0-9239-19625ebcef35
+    
 
-
-    2024-02-07 22:47:49,898 - chromadb.segment.impl.vector.local_persistent_hnsw - [33;20mWARNING[0m - (local_persistent_hnsw.py:271) - Add of existing embedding ID: 1f7abdb8-4dbb-4f9d-9398-f59fb630b862 
-
-
-    Add of existing embedding ID: 1f7abdb8-4dbb-4f9d-9398-f59fb630b862
-
-
-    2024-02-07 22:47:49,899 - chromadb.segment.impl.vector.local_persistent_hnsw - [33;20mWARNING[0m - (local_persistent_hnsw.py:271) - Add of existing embedding ID: cb553733-838a-421b-89bf-c582fe90182a 
-
-
-    Add of existing embedding ID: cb553733-838a-421b-89bf-c582fe90182a
-
-
-
-```python
-# example: 
-# "GPT4 Correct User: {prompt}<|end_of_turn|>GPT4 Correct Assistant: {response}<|end_of_turn|>GPT4 Correct User: {follow_up_question}<|end_of_turn|>GPT4 Correct Assistant:"
-# ref: https://huggingface.co/berkeley-nest/Starling-LM-7B-alpha
-sep = '<|end_of_turn|>'
-resp_prompt_temp = "GPT4 Correct Assistant: "
-```
 
 
 ```python
@@ -284,7 +275,10 @@ tokenizer(
 ```
 
 
+
+
     tensor([[ 2058,  8906, 15098, 18440,  2083,  1033]], device='mps:0')
+
 
 
 
@@ -294,15 +288,32 @@ query_resp = query_engine.query("What is flagship product of Colosscious")
 print_resp(query_resp.response)
 ```
 
-    2024-02-07 19:52:25,347 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+    2024-02-13 11:28:56,864 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
 
 
     HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    **********
+    Trace: query
+        |_query ->  4.970373 seconds
+          |_retrieve ->  0.348564 seconds
+            |_embedding ->  0.343212 seconds
+          |_synthesize ->  4.621614 seconds
+            |_templating ->  1e-05 seconds
+            |_llm ->  4.618833 seconds
+    **********
     ✅ RESPONSE:
     ************************************************************
     
-    Sorry, I cannot answer your query without using any
-    more tools.
+     Coloscius specializes in delivering digital technology
+    solutions to bio and pharmaceutical companies, with a
+    focus on enhancing the performance of new drug
+    developments, improving quality control, optimizing
+    manufacturing processes, and reducing costs and
+    duration through Big Data. Therefore, it can be
+    inferred that their flagship product or service likely
+    revolves around these areas, providing advanced
+    technologies and solutions tailored to the unique needs
+    of the biotech and pharma industries.
     
     ************************************************************
      🚩END OF RESPONSE
@@ -315,7 +326,7 @@ query_resp = query_engine.query("What is Pharmquer?")
 print_resp(query_resp.response)
 ```
 
-    2024-02-07 19:52:36,318 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+    2024-02-07 19:52:36,318 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
 
 
     HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
@@ -336,18 +347,37 @@ print_resp(query_resp.response)
      🚩END OF RESPONSE
 
 
+### Persist Storage
+
+
+```python
+index.storage_context.persist()
+```
+
 ## Load existing embeddings in ChromaDB.
 
 
 ```python
-service_context = ServiceContext.from_defaults(llm=llm, embed_model=embedding_model, text_splitter=text_splitter,
-    prompt_helper=prompt_helper,)
+# Deprecated from v0.9
+#service_context = ServiceContext.from_defaults(llm=llm, embed_model=embedding_model, text_splitter=text_splitter,
+#    prompt_helper=prompt_helper, callback_manager=callback_manager)
 # load your index from stored vectors
-index = VectorStoreIndex.from_vector_store(
-    vector_store, storage_context=storage_context, service_context=service_context
-)
 
+# Deprecated from v0.9
+#index = VectorStoreIndex.from_vector_store(
+#    vector_store, storage_context=storage_context, service_context=service_context
+#)
+
+# index = load_index_from_storage(storage_context) 
+index = VectorStoreIndex.from_vector_store(
+   vector_store, storage_context=storage_context,
+)
 ```
+
+    **********
+    Trace: index_construction
+    **********
+
 
 
 ```python
@@ -361,92 +391,29 @@ response = query_engine.query("What is Colosscious?")
 print_resp(response.response)
 ```
 
-    2024-02-08 13:58:07,575 - chromadb.segment.impl.vector.local_persistent_hnsw - [33;20mWARNING[0m - (local_persistent_hnsw.py:271) - Add of existing embedding ID: dc0f865e-90c8-42b0-9239-19625ebcef35 
-
-
-    Add of existing embedding ID: dc0f865e-90c8-42b0-9239-19625ebcef35
-
-
-    2024-02-08 13:58:07,576 - chromadb.segment.impl.vector.local_persistent_hnsw - [33;20mWARNING[0m - (local_persistent_hnsw.py:271) - Add of existing embedding ID: 1f7abdb8-4dbb-4f9d-9398-f59fb630b862 
-
-
-    Add of existing embedding ID: 1f7abdb8-4dbb-4f9d-9398-f59fb630b862
-
-
-    2024-02-08 13:58:07,577 - chromadb.segment.impl.vector.local_persistent_hnsw - [33;20mWARNING[0m - (local_persistent_hnsw.py:271) - Add of existing embedding ID: cb553733-838a-421b-89bf-c582fe90182a 
-
-
-    Add of existing embedding ID: cb553733-838a-421b-89bf-c582fe90182a
-
-
-    2024-02-08 13:58:19,513 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+    2024-02-13 11:28:43,659 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
 
 
     HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
-
-
-    2024-02-08 13:58:23,079 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
-
-
-    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
-
-
-    2024-02-08 13:58:28,070 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
-
-
-    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
-
-
-    2024-02-08 13:58:32,393 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
-
-
-    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
-
-
-    2024-02-08 13:58:35,861 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
-
-
-    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
-
-
-    2024-02-08 13:58:41,581 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
-
-
-    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
-
-
-    2024-02-08 13:58:46,546 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
-
-
-    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
-
-
-    2024-02-08 13:58:52,140 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
-
-
-    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
-
-
-    2024-02-08 13:58:57,621 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
-
-
-    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    **********
+    Trace: query
+        |_query ->  10.837251 seconds
+          |_retrieve ->  0.474597 seconds
+            |_embedding ->  0.470343 seconds
+          |_synthesize ->  10.362329 seconds
+            |_templating ->  1.3e-05 seconds
+            |_llm ->  10.358294 seconds
+    **********
     ✅ RESPONSE:
     ************************************************************
     
-     Colosscious, also known as "Colosconscious," is a
-    specialized entity dedicated to providing digital
-    technology solutions for bio and pharmaceutical
-    companies. Their primary objectives include enhancing
-    new drug development effectiveness, upholding quality
-    standards, optimizing manufacturing processes, and
-    reducing expenses related to these domains. It's
-    essential to acknowledge that the context provided may
-    contain a typo (Colosconscious instead of Colosscious),
-    which could result in confusion. While it's possible
-    that the accurate name is "Colosconscious," without
-    additional clarification or detailed context, this
-    assumption cannot be confirmed with certainty.
+     Colosconscious is an expert entity that specializes in
+    offering digital technology solutions to bio and
+    pharmaceutical companies. Their focus is on enhancing
+    the efficacy of new drug developments, ensuring quality
+    control, optimizing manufacturing processes, and
+    decreasing costs and durations through the application
+    of Big Data.
     
     ************************************************************
      🚩END OF RESPONSE
@@ -481,7 +448,7 @@ loader = ObjectArrayReader()
 
 
 ```python
-from llama_index.readers.schema.base import Document
+from llama_index.core.readers.base import Document
 object_arrays:list[Document] = loader.load_data(file=simple_ols)
 ```
 
@@ -512,41 +479,33 @@ object_arrays[0]
 
 
 
-    Document(id_='1f219b5d-0518-4048-a8fa-c08a8e0ec816', embedding=None, metadata={'columns': "['x1', 'x2', 'x3', 'y']", 'schema': 'None', 'shape': '(50, 4)'}, excluded_embed_metadata_keys=[], excluded_llm_metadata_keys=[], relationships={}, hash='01044d00146a997fca8953cf8ba579cb4492a76d451ca3aa31645e0e2e9bcb89', text='97.98219999874924, 99.84941752810117, 100.9727776594234, 360.87650920565545\n101.00077953260389, 99.87874921228179, 99.35642250227457, 361.50488035486944\n98.5109626677227, 100.7485502397903, 99.46465098250788, 359.8117609861218\n100.77335929310553, 100.03722922045552, 99.86657209922947, 362.2336960397953\n100.97359840386007, 99.1724799721807, 100.16093297144785, 362.1391160315852\n100.18799255929102, 100.55900119891184, 100.61532849440285, 363.29752977180965\n100.9157547652626, 98.61649241995889, 99.06726035297895, 359.7975894964005\n101.04615952660859, 102.00920930524853, 100.16419028246959, 364.8003752715575\n99.46321248760913, 100.23898461781165, 100.4603474082993, 361.9810830871964\n101.01997365057879, 100.70311893925478, 100.35193718659701, 363.88982333927027\n100.13690655914681, 100.07882115404048, 98.55349011863521, 359.46137480234387\n101.06426034086174, 100.39468013724496, 99.59524654141205, 362.4291116312047\n98.37827347228104, 103.02974783668428, 100.1611399406794, 362.8735393636648\n99.97507192990182, 98.90754655604644, 99.80434032022505, 360.25326008000667\n100.39532804084602, 100.00783015782618, 98.84412853695146, 360.1443934124746\n100.53538350964381, 101.45593826545792, 101.35656192129933, 365.686428125867\n101.82462124282185, 100.60168747124192, 101.17271531836492, 365.98868463340847\n100.20083842899689, 100.08207154841824, 99.58637885148526, 361.20837231254296\n101.21055853157635, 100.14337012301043, 97.83946914592629, 359.5083658057684\n99.18284850767726, 99.36415064348877, 99.44933313879001, 359.2461732873584\n98.68076906156287, 99.88606328063753, 100.63302113481906, 361.1047253879728\n100.69262845160499, 100.95667625950557, 100.42976056344008, 363.89692658755564\n99.28259711401759, 99.70388277366841, 101.68434722375862, 363.2876025473195\n100.06352462146366, 98.88111045420715, 98.17662400762073, 357.68289832611293\n99.30093777662633, 99.66957998231912, 101.04827928253668, 362.24405534917537\n101.80808125496162, 98.90879253371892, 100.43144827373477, 363.22961316755584\n100.87937300919184, 100.21857314642527, 98.7095417586287, 360.6345955200315\n101.26476906248293, 100.78711425646654, 100.29822225418964, 364.14048570001194\n99.91296978569375, 99.81832037463671, 100.93755148875996, 362.85330879179776\n98.33923043666618, 101.41609851401992, 100.9069226929846, 362.5750535271962\n99.16537289151567, 101.53101959448773, 98.68726411895874, 359.9607243551743\n99.03719843850321, 101.11878894468508, 100.96547923761082, 363.1452988224573\n99.43406666585818, 100.91739344461386, 99.36206117770445, 360.78473992459374\n99.68590044334066, 99.48627235799435, 99.56930464452118, 360.089118523317\n97.32232213736515, 99.97594783847929, 100.69691843112757, 359.8391638384025\n99.39074229940556, 99.93236851645756, 98.2362250018063, 358.01656116479893\n100.77590520414071, 99.69003697728576, 98.90965598576909, 360.3683307126241\n99.68679150345386, 99.02927646327905, 101.76626758973612, 363.239031940659\n100.64548154386631, 99.20184240211881, 100.01344022902087, 361.5760580247661\n98.99353686788966, 99.96912376997722, 101.61919061254812, 363.11424644961215\n99.61923454090937, 99.106406018837, 100.84958819151115, 361.7497627252443\n99.07093312420517, 100.95979226903094, 99.95112469407546, 361.39111973582743\n100.07233850453227, 99.7129946461946, 101.44068386026443, 363.74407241841885\n99.72656237514776, 98.72754826499948, 99.97952513372913, 360.1084405895639\n99.52984537048624, 102.18311836300242, 98.52851110733191, 360.68518093107895\n101.14589750687492, 101.45663623211762, 100.70204076103222, 365.2772452093873\n100.69113884387745, 100.5140731983062, 98.73201138024642, 360.73859881401285\n100.97373793175905, 99.21840952279409, 98.11881715092599, 358.8678844756544\n103.14715709169663, 98.60042261009588, 100.7938715049434, 364.9675528117923\n100.6433422264419, 100.72347518969544, 99.54248360001975, 362.1927963663157', start_char_idx=None, end_char_idx=None, text_template='{metadata_str}\n\n{content}', metadata_template='{key}: {value}', metadata_seperator='\n')
+    Document(id_='f552deae-f8a7-4adb-9863-31cd036647b2', embedding=None, metadata={'columns': "['x1', 'x2', 'x3', 'y']", 'schema': 'None', 'shape': '(50, 4)'}, excluded_embed_metadata_keys=[], excluded_llm_metadata_keys=[], relationships={}, text='97.98219999874924, 99.84941752810117, 100.9727776594234, 360.87650920565545\n101.00077953260389, 99.87874921228179, 99.35642250227457, 361.50488035486944\n98.5109626677227, ...truncated', start_char_idx=None, end_char_idx=None, text_template='{metadata_str}\n\n{content}', metadata_template='{key}: {value}', metadata_seperator='\n')
 
 
 
 
 ```python
-service_context = ServiceContext.from_defaults(llm=llm, embed_model=embedding_model,)
-index = VectorStoreIndex.from_documents(
-    documents=object_arrays, service_context=service_context,  storage_context=storage_context, show_progress=True,
-)
+# check if storage already exists
+PERSIST_DIR = "./storage"
+if not os.path.exists(PERSIST_DIR):
+    # load the documents and create the index
+    index = VectorStoreIndex.from_documents(
+        documents=object_arrays, storage_context=storage_context, show_progress=True,
+    )
+    # store it for later
+    index.storage_context.persist(persist_dir=PERSIST_DIR)
+else:
+    # load the existing index
+    #index = load_index_from_storage(storage_context)
+    index = VectorStoreIndex.from_vector_store(
+        vector_store, storage_context=storage_context,
+    )
+
 ```
 
-    huggingface/tokenizers: The current process just got forked, after parallelism has already been used. Disabling parallelism to avoid deadlocks...
-    To disable this warning, you can either:
-    	- Avoid using `tokenizers` before the fork if possible
-    	- Explicitly set the environment variable TOKENIZERS_PARALLELISM=(true | false)
-    Parsing nodes:   0%|          | 0/1 [00:00<?, ?it/s]Token indices sequence length is longer than the specified maximum sequence length for this model (2225 > 512). Running this sequence through the model will result in indexing errors
-    Parsing nodes: 100%|██████████| 1/1 [00:00<00:00, 49.78it/s]
-    Generating embeddings: 100%|██████████| 4/4 [00:00<00:00, 10.85it/s]
-    2024-02-08 15:20:20,129 - chromadb.segment.impl.vector.local_persistent_hnsw - [33;20mWARNING[0m - (local_persistent_hnsw.py:271) - Add of existing embedding ID: dc0f865e-90c8-42b0-9239-19625ebcef35 
-
-
-    Add of existing embedding ID: dc0f865e-90c8-42b0-9239-19625ebcef35
-
-
-    2024-02-08 15:20:20,130 - chromadb.segment.impl.vector.local_persistent_hnsw - [33;20mWARNING[0m - (local_persistent_hnsw.py:271) - Add of existing embedding ID: 1f7abdb8-4dbb-4f9d-9398-f59fb630b862 
-
-
-    Add of existing embedding ID: 1f7abdb8-4dbb-4f9d-9398-f59fb630b862
-
-
-    2024-02-08 15:20:20,130 - chromadb.segment.impl.vector.local_persistent_hnsw - [33;20mWARNING[0m - (local_persistent_hnsw.py:271) - Add of existing embedding ID: cb553733-838a-421b-89bf-c582fe90182a 
-
-
-    Add of existing embedding ID: cb553733-838a-421b-89bf-c582fe90182a
+    **********
+    Trace: index_construction
+    **********
 
 
 
@@ -569,7 +528,7 @@ object_arrays
 
 
 
-    [Document(id_='a044bf0f-199b-4cab-822a-b61305ba9495', embedding=None, metadata={'columns': "['x1', 'x2', 'x3', 'y']", 'schema': 'None', 'shape': '(50, 4)'}, excluded_embed_metadata_keys=[], excluded_llm_metadata_keys=[], relationships={}, hash='9f4c001f1f1ad7d1636d4457b18f1cbb05d3359492cf2267e2666fabf435f140', text='97.98219999874924, 99.84941752810117, 100.9727776594234, 360.87650920565545\n101.00077953260389, 99.87874921228179, 99.35642250227457, 361.50488035486944\n98.5109626677227, 100.7485502397903, 99.46465098250788, 359.8117609861218\n100.77335929310553, 100.03722922045552, 99.86657209922947, 362.2336960397953\n100.97359840386007, 99.1724799721807, 100.16093297144785, 362.1391160315852\n100.18799255929102, 100.55900119891184, 100.61532849440285, 363.29752977180965\n100.9157547652626, 98.61649241995889, 99.06726035297895, 359.7975894964005\n101.04615952660859, 102.00920930524853, 100.16419028246959, 364.8003752715575\n99.46321248760913, 100.23898461781165, 100.4603474082993, 361.9810830871964\n101.01997365057879, 100.70311893925478, 100.35193718659701, 363.88982333927027\n100.13690655914681, 100.07882115404048, 98.55349011863521, 359.46137480234387\n101.06426034086174, 100.39468013724496, 99.59524654141205, 362.4291116312047\n98.37827347228104, 103.02974783668428, 100.1611399406794, 362.8735393636648\n99.97507192990182, 98.90754655604644, 99.80434032022505, 360.25326008000667\n100.39532804084602, 100.00783015782618, 98.84412853695146, 360.1443934124746\n100.53538350964381, 101.45593826545792, 101.35656192129933, 365.686428125867\n101.82462124282185, 100.60168747124192, 101.17271531836492, 365.98868463340847\n100.20083842899689, 100.08207154841824, 99.58637885148526, 361.20837231254296\n101.21055853157635, 100.14337012301043, 97.83946914592629, 359.5083658057684\n99.18284850767726, 99.36415064348877, 99.44933313879001, 359.2461732873584\n98.68076906156287, 99.88606328063753, 100.63302113481906, 361.1047253879728\n100.69262845160499, 100.95667625950557, 100.42976056344008, 363.89692658755564\n99.28259711401759, 99.70388277366841, 101.68434722375862, 363.2876025473195\n100.06352462146366, 98.88111045420715, 98.17662400762073, 357.68289832611293\n99.30093777662633, 99.66957998231912, 101.04827928253668, 362.24405534917537\n101.80808125496162, 98.90879253371892, 100.43144827373477, 363.22961316755584\n100.87937300919184, 100.21857314642527, 98.7095417586287, 360.6345955200315\n101.26476906248293, 100.78711425646654, 100.29822225418964, 364.14048570001194\n99.91296978569375, 99.81832037463671, 100.93755148875996, 362.85330879179776\n98.33923043666618, 101.41609851401992, 100.9069226929846, 362.5750535271962\n99.16537289151567, 101.53101959448773, 98.68726411895874, 359.9607243551743\n99.03719843850321, 101.11878894468508, 100.96547923761082, 363.1452988224573\n99.43406666585818, 100.91739344461386, 99.36206117770445, 360.78473992459374\n99.68590044334066, 99.48627235799435, 99.56930464452118, 360.089118523317\n97.32232213736515, 99.97594783847929, 100.69691843112757, 359.8391638384025\n99.39074229940556, 99.93236851645756, 98.2362250018063, 358.01656116479893\n100.77590520414071, 99.69003697728576, 98.90965598576909, 360.3683307126241\n99.68679150345386, 99.02927646327905, 101.76626758973612, 363.239031940659\n100.64548154386631, 99.20184240211881, 100.01344022902087, 361.5760580247661\n98.99353686788966, 99.96912376997722, 101.61919061254812, 363.11424644961215\n99.61923454090937, 99.106406018837, 100.84958819151115, 361.7497627252443\n99.07093312420517, 100.95979226903094, 99.95112469407546, 361.39111973582743\n100.07233850453227, 99.7129946461946, 101.44068386026443, 363.74407241841885\n99.72656237514776, 98.72754826499948, 99.97952513372913, 360.1084405895639\n99.52984537048624, 102.18311836300242, 98.52851110733191, 360.68518093107895\n101.14589750687492, 101.45663623211762, 100.70204076103222, 365.2772452093873\n100.69113884387745, 100.5140731983062, 98.73201138024642, 360.73859881401285\n100.97373793175905, 99.21840952279409, 98.11881715092599, 358.8678844756544\n103.14715709169663, 98.60042261009588, 100.7938715049434, 364.9675528117923\n100.6433422264419, 100.72347518969544, 99.54248360001975, 362.1927963663157', start_char_idx=None, end_char_idx=None, text_template='{metadata_str}\n\n{content}', metadata_template='{key}: {value}', metadata_seperator='\n')]
+    [Document(id_='f552deae-f8a7-4adb-9863-31cd036647b2', embedding=None, metadata={'columns': "['x1', 'x2', 'x3', 'y']", 'schema': 'None', 'shape': '(50, 4)'}, excluded_embed_metadata_keys=[], excluded_llm_metadata_keys=[], relationships={}, text='97.98219999874924, 99.84941752810117, 100.9727776594234, 360.87650920565545\n101.00077953260389, 99.87874921228179, 99.35642250227457, 361.50488035486944\n98.5109626677227, ...truncated', start_char_idx=None, end_char_idx=None, text_template='{metadata_str}\n\n{content}', metadata_template='{key}: {value}', metadata_seperator='\n')]
 
 
 
@@ -585,20 +544,41 @@ response = query_engine.query("How many values with in the dataset?")
 print_resp(response.response)
 ```
 
-    2024-02-08 15:12:13,321 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
-
+    2024-02-13 12:01:27,442 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
 
     HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    **********
+    Trace: query
+        |_query ->  543.953731 seconds
+          |_retrieve ->  0.361622 seconds
+            |_embedding ->  0.356515 seconds
+          |_synthesize ->  543.591766 seconds
+            |_templating ->  1.5e-05 seconds
+            |_llm ->  4.945246 seconds
+            |_templating ->  2.2e-05 seconds
+            |_llm ->  13.736413 seconds
+            |_templating ->  4.2e-05 seconds
+            |_llm ->  5.436325 seconds
+            ... truncated
+            |_llm ->  4.846492 seconds
+    **********
     ✅ RESPONSE:
     ************************************************************
     
-     The dataset contains a total of 50 rows, as indicated
-    by the shape of (50, 4) for both sets of data provided.
-    However, it's important to note that the context
-    information doesn't explicitly state that there are two
-    sets of data provided. But based on the alternating
-    columns in each block of data, we can infer that there
-    are indeed two separate sets of data with 50 rows each.
+     The number of values in a dataset can be identified
+    through its shape, which denotes the number of rows and
+    columns it holds. However, without access to this
+    specific information from the new context, it remains
+    uncertain to ascertain the total count of values within
+    the given dataset. Consequently, I will revert to the
+    original answer: The number of values in a dataset is
+    established by its shape, which comprises the number of
+    rows and columns. For instance, if the shape manifests
+    as (fifty, four), then you encounter fifty rows, each
+    with four columns. Consequently, the dataset
+    encompasses a total of fifty * four = two hundred
+    values.
     
     ************************************************************
      🚩END OF RESPONSE
@@ -622,15 +602,39 @@ response = query_engine.query("How many columns' name starts with 'x'?")
 print_resp(response.response)
 ```
 
-    2024-02-08 15:13:24,979 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+    2024-02-13 11:44:45,953 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
 
 
     HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    **********
+    Trace: query
+        |_query ->  19.721272 seconds
+          |_retrieve ->  0.514482 seconds
+            |_embedding ->  0.507621 seconds
+          |_synthesize ->  19.206533 seconds
+            |_templating ->  1.1e-05 seconds
+            |_llm ->  8.21483 seconds
+            |_templating ->  3.1e-05 seconds
+            |_llm ->  2.355871 seconds
+            |_templating ->  1.1e-05 seconds
+            |_llm ->  1.550853 seconds
+            |_templating ->  4.9e-05 seconds
+            |_llm ->  2.951295 seconds
+            |_templating ->  6.7e-05 seconds
+            |_llm ->  1.637973 seconds
+            |_templating ->  4e-05 seconds
+            |_llm ->  2.426145 seconds
+    **********
     ✅ RESPONSE:
     ************************************************************
     
-     There are three columns' names that start with 'x',
-    which are 'x1', 'x2', and 'x3'.
+     Based on the new context provided, there are no
+    columns named explicitly with the letter 'x' in the
+    given data. The original answer stands repeating: The
+    dataset consists of three columns whose names begin
+    with the letter 'x'. These columns can be identified as
+    'x1', 'x2', and 'x3'.
     
     ************************************************************
      🚩END OF RESPONSE
@@ -638,34 +642,36 @@ print_resp(response.response)
 
 
 ```python
-response = query_engine.query("What is the average of column 'x1'?")
+response = query_engine.query("Can you tell me about the relationship between the dataset and Colosscious?")
 print_resp(response.response)
 ```
 
-    2024-02-08 15:21:03,508 - httpx - [32;20mINFO[0m - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+    2024-02-13 12:14:29,172 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
 
 
     HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    **********
+    Trace: query
+        |_query ->  6.774902 seconds
+          |_retrieve ->  0.710536 seconds
+            |_embedding ->  0.704498 seconds
+          |_synthesize ->  6.063717 seconds
+            |_templating ->  2.2e-05 seconds
+            |_llm ->  6.058722 seconds
+    **********
     ✅ RESPONSE:
     ************************************************************
     
-     To find the average of column 'x1', we need to sum all
-    the values in column 'x1' and then divide by the total
-    number of rows (50). Here are all the values in column
-    'x1':  99.07093312420517, 100.84958819151115,
-    99.72656237514776, ... , 100.97373793175905  Adding all
-    the values gives us:  99.07093312420517 +
-    100.84958819151115 + ... + 100.97373793175905 = (sum of
-    all x1 values)  Now, we need to divide the sum by the
-    total number of rows, which is 50:  (sum of all x1
-    values) / 50 = average of column 'x1'  Without
-    calculating the exact sum, we can see that the average
-    value lies between 98.73 (lowest value) and 100.97
-    (highest value). However, without performing the actual
-    calculation, we cannot provide an exact numerical
-    answer for the average of column 'x1'.  Please note
-    that providing the exact average would require further
-    calculations that go beyond the scope of this AI model.
+     Coloscius is an expert organization that specializes
+    in providing digital technology solutions to bio and
+    pharmaceutical companies. Their focus areas include
+    enhancing new drug developments, ensuring quality
+    control, optimizing manufacturing processes, and
+    reducing costs and durations through the application of
+    Big Data. However, there's no direct mention or
+    relationship stated between Coloscius and a specific
+    dataset in the context information provided.
     
     ************************************************************
      🚩END OF RESPONSE
@@ -680,19 +686,6 @@ df.head()
 
 
 <div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
 <table border="1" class="dataframe">
   <thead>
     <tr style="text-align: right;">
@@ -759,3 +752,263 @@ print('Mean= ', df['x1'].mean())
     Name: x1, dtype: float64
     Mean=  100.07520939069373
 
+
+
+```python
+index.storage_context.persist()
+```
+
+### Sub Question Query Engine
+
+
+```python
+query_engine = index.as_query_engine()
+```
+
+
+```python
+response = query_engine.query(
+    "What about the dataset?"
+)
+print_resp(response.response)
+```
+
+    2024-02-13 11:32:22,255 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+
+
+    2024-02-13 11:38:01,007 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    **********
+    Trace: query
+        |_query ->  344.353345 seconds
+          |_retrieve ->  0.447767 seconds
+            |_embedding ->  0.443857 seconds
+          |_synthesize ->  343.905318 seconds
+            |_templating ->  1.4e-05 seconds
+            |_llm ->  5.152156 seconds
+            |_templating ->  5.9e-05 seconds
+            ...truncated
+            |_templating ->  1.4e-05 seconds
+            |_llm ->  1.230633 seconds
+    **********
+    ✅ RESPONSE:
+    ************************************************************
+    
+     The new context does not provide enough details to
+    draw conclusions about the nature of the dataset or its
+    attributes.
+    
+    ************************************************************
+     🚩END OF RESPONSE
+
+
+
+```python
+from llama_index.core.tools import QueryEngineTool, ToolMetadata
+from llama_index.core.query_engine import SubQuestionQueryEngine
+```
+
+
+```python
+
+query_engine_tools = [
+    QueryEngineTool(
+        query_engine=query_engine,
+        metadata=ToolMetadata(
+            name="summary_tool",
+            description=f"Return the shape of the dataset and the basic summary of the dataset, such as mean, range, stddev of each columns.",
+        ),
+    ),
+] 
+
+query_engine = SubQuestionQueryEngine.from_defaults(
+    query_engine_tools=query_engine_tools,
+    verbose=True,
+    use_async=True,
+)
+```
+
+
+```python
+response = query_engine.query(
+   "What about the dataset?"
+)
+print_resp(response.response )
+```
+
+    2024-02-13 11:38:31,494 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    Generated 4 sub questions.
+    [summary_tool] Q: What is the shape of the dataset
+    
+
+    2024-02-13 11:38:34,709 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    [summary_tool] A:  The new context does not contribute to determining the shape of the dataset. Consequently, the original answer stays unaltered: The dataset comprises 50 instances with four features apiece, resulting in a total shape of (50, 4).
+    [summary_tool] Q: What is the mean of each column in the dataset
+    
+
+    2024-02-13 11:39:02,830 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+
+
+    2024-02-13 11:39:02,836 - llama_index.core.query_engine.sub_question_query_engine - WARNING - (sub_question_query_engine.py:253) - [summary_tool] Failed to run What is the mean of each column in the dataset 
+
+
+    [summary_tool] Failed to run What is the mean of each column in the dataset
+    [summary_tool] Q: What is the range of each column in the dataset
+    
+
+    2024-02-13 11:39:17,299 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+
+
+    2024-02-13 11:39:17,316 - llama_index.core.query_engine.sub_question_query_engine - WARNING - (sub_question_query_engine.py:253) - [summary_tool] Failed to run What is the range of each column in the dataset 
+
+
+    [summary_tool] Failed to run What is the range of each column in the dataset
+    [summary_tool] Q: What is the standard deviation of each column in the dataset
+    
+
+    2024-02-13 11:39:22,956 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    [summary_tool] A:  To calculate the standard deviation for each column in a given dataset, you can use the following steps:
+    
+    1. First, find the mean (average) value for each column.
+    2. Next, calculate the difference between each data point and the corresponding column mean.
+    3. Find the square of each difference.
+    4. Calculate the average of these squared differences for each column.
+    5. Take the square root of that average to find the standard deviation.
+    
+    However, without access to any built-in functions or libraries, it's not possible to directly calculate the standard deviations from the context information provided. To do so, you would need to write a program that implements these steps and applies them to each column in the dataset.
+    
+
+    2024-02-13 11:39:25,364 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+
+
+    2024-02-13 11:39:29,576 - httpx - INFO - (_client.py:1027) - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK" 
+
+    HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+    **********
+    Trace: query
+        |_query ->  101.519327 seconds
+          |_templating ->  2.3e-05 seconds
+          |_llm ->  9.84709 seconds
+          |_sub_question ->  20.559445 seconds
+            |_query ->  20.55857 seconds
+              |_retrieve ->  0.57059 seconds
+                |_embedding ->  0.557139 seconds
+              |_synthesize ->  19.987694 seconds
+                |_templating ->  1.3e-05 seconds
+                |_llm ->  2.64631 seconds
+                |_llm ->  2.644304 seconds
+                |_templating ->  4.8e-05 seconds
+                |_llm ->  5.660124 seconds
+                |_llm ->  5.659924 seconds
+                |_templating ->  7.7e-05 seconds
+                |_llm ->  2.740417 seconds
+                |_llm ->  2.740273 seconds
+                |_templating ->  3e-05 seconds
+                |_llm ->  2.293783 seconds
+                |_llm ->  2.293711 seconds
+                |_templating ->  4e-05 seconds
+                |_llm ->  2.2244 seconds
+                |_llm ->  2.224188 seconds
+                |_templating ->  2.1e-05 seconds
+                |_llm ->  2.329042 seconds
+                |_llm ->  2.328894 seconds
+                |_templating ->  4e-05 seconds
+                |_llm ->  2.06445 seconds
+                |_llm ->  2.064259 seconds
+          |_sub_question ->  10.775827 seconds
+            |_query ->  10.775703 seconds
+              |_retrieve ->  0.484103 seconds
+                |_embedding ->  0.478835 seconds
+              |_synthesize ->  10.291405 seconds
+                |_templating ->  8e-06 seconds
+                |_llm ->  10.281698 seconds
+                |_llm ->  10.281616 seconds
+          |_sub_question ->  14.478265 seconds
+            |_query ->  14.477974 seconds
+              |_retrieve ->  0.494412 seconds
+                |_embedding ->  0.48972 seconds
+              |_synthesize ->  13.983397 seconds
+                |_templating ->  9e-06 seconds
+                |_llm ->  13.974939 seconds
+                |_llm ->  13.974803 seconds
+          |_sub_question ->  5.64837 seconds
+            |_query ->  5.647935 seconds
+              |_retrieve ->  0.531011 seconds
+                |_embedding ->  0.525999 seconds
+              |_synthesize ->  5.116657 seconds
+                |_templating ->  9e-06 seconds
+                |_llm ->  5.106247 seconds
+                |_llm ->  5.106136 seconds
+          |_synthesize ->  40.204981 seconds
+            |_templating ->  3.2e-05 seconds
+            |_llm ->  2.384732 seconds
+            |_templating ->  2.8e-05 seconds
+            |_llm ->  4.209638 seconds
+            |_templating ->  4.7e-05 seconds
+            |_llm ->  3.066046 seconds
+            |_templating ->  2.6e-05 seconds
+            |_llm ->  5.198477 seconds
+            |_templating ->  2.3e-05 seconds
+            |_llm ->  4.189788 seconds
+            |_templating ->  3.6e-05 seconds
+            |_llm ->  4.005403 seconds
+            |_templating ->  4.6e-05 seconds
+            |_llm ->  4.860746 seconds
+            |_templating ->  3.3e-05 seconds
+            |_llm ->  3.955889 seconds
+            |_templating ->  3.6e-05 seconds
+            |_llm ->  3.99903 seconds
+            |_templating ->  4.2e-05 seconds
+            |_llm ->  4.287925 seconds
+    **********
+    ✅ RESPONSE:
+    ************************************************************
+    
+     To determine the standard deviation for each unique
+    column within a given dataset, follow these steps:  1.
+    Calculate the average value for every distinct column.
+    6. Subtract each data point from its respective mean
+    value in step 1 for the given column. 3. Square the
+    results obtained in step 2. 4. Find the average of the
+    squared differences computed in step 3 for that
+    specific column. 5. Obtain the standard deviation by
+    taking the square root of the result from step 4, then
+    apply these calculations to each column within the
+    dataset.
+    
+    ************************************************************
+     🚩END OF RESPONSE
+
+
+
+```python
+
+```

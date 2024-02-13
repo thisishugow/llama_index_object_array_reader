@@ -4,3 +4,5 @@ offload_folder
 __pycache__
 .env
 chromadb
+storage
+index.md
